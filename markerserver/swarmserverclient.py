@@ -187,10 +187,10 @@ class MarkerServer:
                                 self.clients.add(addr)
                                 logging.info(f"New client connected: {addr}")
                             self.broadcast_status_to_one(addr)
-                    elif message.get("type") == 'takeoff_request' or message.get("status", False) or message.get("marker_id") > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
+                    elif message.get("type") == 'takeoff_request' or message.get("status", False) or message.get("marker_id", 0) > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
                         if message.get("type") == 'takeoff_request' or message.get("status", False):    
                             self.update_drone_status(message)
-                        if message.get("marker_id") > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
+                        if message.get("marker_id", 0) > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
                             self.update_marker_status(message)
                     else:
                         logging.warning("Invalid message format received. See handle_messages in swarmserverclient.")
