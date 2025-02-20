@@ -13,7 +13,7 @@ import logging  # in decreasing log level: debug > info > warning > error > crit
 
 from PPFLY2.main import execute_waypoints
 
-from shared_utils.dronecontroller2 import DroneController
+from shared_utils.dronecontroller3 import DroneController
 from shared_utils.shared_utils import *
 from .utils import *
 
@@ -95,8 +95,10 @@ def navigation_thread(controller:DroneController):
                 logging.info(f"Obtained Marker Status from Server: {controller.marker_client.marker_status}")
                 logging.debug(f"Marker detected: {marker_id}. Available: {controller.marker_client.is_marker_available(marker_id)}. Currently locked on: {controller.markernum_lockedon}")
 
-                # Difficult logic, discussed between Yaqub and Gab 11 Feb
-                # Also works without a server, since .is_marker_available will return True
+                # PART 1: DETECTION AND LOCK-ON LOGIC
+                    # Difficult logic, discussed between Yaqub and Gab 11 Feb
+                    # Also works without a server, since .is_marker_available will return True
+                    # Can be tested remotely; Has worked well caa 14 Feb
                 if controller.marker_client.is_marker_available(marker_id) or marker_id == controller.markernum_lockedon:
 
                     if controller.markernum_lockedon is None or marker_id == controller.markernum_lockedon: # first time detecting an available marker, or subsequent time detecting a marker locked on by it (but shown as no longer available)
@@ -126,6 +128,9 @@ def navigation_thread(controller:DroneController):
                     logging.info(f"Valid marker {marker_id} is NOT available (and not already locked-on previously).")
                     goto_approach_sequence = False
                 
+                # PART 2: APPROACH SEQUENCE LOGIC
+                    # Still work in progress caa 20 Feb
+                    # Can only be tested properly IRL
                 if goto_approach_sequence is True and not params.NO_FLY:                  
                     logging.info(f"Still locked on and centering/approaching marker {controller.markernum_lockedon}...")
                     
@@ -155,8 +160,10 @@ def navigation_thread(controller:DroneController):
 
                         current_height = controller.drone.get_distance_tof() - params.EXTRA_HEIGHT
                         current_distance_2D = np.sqrt(current_distance_3D**2 - current_height**2)
+                        current_distance_zrot = controller.markerlocked_data["position"][2]
 
                         logging.info(f"3D distance to marker: {current_distance_3D:.1f}cm \n Drone height: {current_height:.1f}cm \n 2D distance to marker: {current_distance_2D:.1f}cm")
+                        logging.info(f"Forward distance to marker (from rotation matrix): {current_distance_zrot:.1f}cm")
                         cv2.putText(display_frame, "Centered. Approaching...", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 3)
 
                         if current_distance_2D >= 500:
@@ -179,9 +186,67 @@ def navigation_thread(controller:DroneController):
                             #     centering_complete = False
 
                         elif current_distance_2D > 0 and current_distance_2D < 500:
+                            """
+                            21 FEB GAB NEW IDEA - Once final approach, the drone is already centered and locked-on the victim and will not lose track. WILL NEVER exit the while loop anymore!
+                            Here, we can do a quick scan (without yaw) for danger markers. Assume only one danger marker next to the victim
+                                If the drone can see the danger marker in the same frame as the victim, compute the x- and y- distances between the danger and victim
+                                If the drone cannot see the danger marker, it will go 1m before the victim, then check again to see any danger behind the victim.
+
+                                WRITTEN 21 FEB, NEED TO TEST IRL
+                            """
                             
-                            logging.info(f"Final Approach: Moving forward {int(current_distance_2D)}cm to marker.")
-                            controller.drone.move_forward(int(current_distance_2D))
+                            logging.info(f"Entering Final Approach at {int(current_distance_2D)}cm to marker. Checking for danger.")
+
+                            if controller.danger_xyz_raw_offset and controller.danger_marker_distance < 120: # i.e. during approach, saved offset of nearest marker. Once above victim, move slightly in that direction.
+                                logging.info(f"Final Approach: Moving forward {int(current_distance_2D)}cm to marker. Danger spotted < 120cm, will apply offset.")
+                                controller.drone.move_forward(int(current_distance_2D))
+                                controller.drone.send_rc_control(0, 0, 0, 0)
+
+                                dx, dy, dz = controller.danger_xyz_raw_offset
+
+                                # Compute the offset movement
+                                scaling_factor = 50  # Maximum offset in cm (adjust as needed)
+                                offset_x = -dx * (scaling_factor / abs(dx)) if dx != 0 else 0  # Move away from danger in x
+                                offset_z = -dz * (scaling_factor / abs(dz)) if dz != 0 else 0  # Move away from danger in z
+
+                                # Ensure the drone stays within 1m of the victim
+                                offset_x = np.clip(offset_x, -50, 50)  # Limit x offset to ±50 cm
+                                offset_z = np.clip(offset_z, -50, 50)  # Limit z offset to ±50 cm
+
+                                logging.info(f"Moving drone by offset: x={offset_x:.1f} cm, z={offset_z:.1f} cm")
+
+                                # Move the drone using go_xyz_speed
+                                controller.drone.go_xyz_speed(offset_x, offset_z, 0, 20)  # y=0 since we're on the floor
+                                time.sleep(2)  # Wait for the movement to complete
+                                
+                            else: # i.e. during approach, saved offset of nearest marker. Once above victim, move slightly in that direction.
+                                logging.info(f"No danger at first sight. Moving forward {int(current_distance_2D-100)}cm to marker to do last scan.. Then 100cm remaining..")
+                                controller.drone.move_forward(int(current_distance_2D-100))
+                                controller.drone.send_rc_control(0, 0, 0, 0)
+                                last_frame = controller.get_current_frame()
+                                last_display_frame = last_frame.copy()
+                                controller.detect_markers(last_frame, last_display_frame)
+                                controller.drone.move_forward(int(100))  # move forward remaining 100cm
+
+                                # Last chance to do the offset, if triggered
+                                if controller.danger_xyz_raw_offset and controller.danger_marker_distance < 120:
+                                    logging.info(f"Danger spotted at last moment! Applying offset.")
+                                    dx, dy, dz = controller.danger_xyz_raw_offset
+                                    # Compute the offset movement
+                                    scaling_factor = 50  # Maximum offset in cm (adjust as needed)
+                                    offset_x = -dx * (scaling_factor / abs(dx)) if dx != 0 else 0  # Move away from danger in x
+                                    offset_z = -dz * (scaling_factor / abs(dz)) if dz != 0 else 0  # Move away from danger in z
+
+                                    # Ensure the drone stays within 1m of the victim
+                                    offset_x = np.clip(offset_x, -50, 50)  # Limit x offset to ±50 cm
+                                    offset_z = np.clip(offset_z, -50, 50)  # Limit z offset to ±50 cm
+
+                                    logging.info(f"Moving drone by offset: x={offset_x:.1f} cm, z={offset_z:.1f} cm")
+
+                                    # Move the drone using go_xyz_speed
+                                    controller.drone.go_xyz_speed(offset_x, offset_z, 0, 20)  # y=0 since we're on the floor
+                                    time.sleep(2)  # Wait for the movement to complete                           
+
                             logging.info("Approach complete!")
                             controller.drone.send_rc_control(0, 0, 0, 0)
                             approach_complete = True
@@ -269,7 +334,7 @@ def navigation_thread(controller:DroneController):
 
 def main():     
     global DIST_COEFF
-   
+    error = None
     # Setup logging
     logger = setup_logging(params, "UnknownSearchArea")
     logger.info(f"Starting unknown area main with drone_id: {params.PI_ID}")
@@ -296,16 +361,19 @@ def main():
 
         navigation_thread(controller)
 
-    except Exception as e:
-        logging.error(f"Error in main: {e}. Landing.")
+    except Exception as error:
+        logging.error(f"Error in main: {error}. Landing.")
         
     finally:
-        if e:
-            controller.marker_client.send_update(status_message=f'Landed normally')
+        if error:
+            controller.marker_client.send_update(status_message='Landed due to error in main')
         else:
-            controller.marker_client.send_update(status_message=f'Landed due to error in main')
+            controller.marker_client.send_update(status_message='Landed normally')
         logging.info(f"Actually landing for real. End Battery Level: {controller.drone.get_battery()}%")
-        controller.drone.end()
+
+        if hasattr(controller, 'drone'):
+            controller.drone.end()
+            
         cv2.destroyAllWindows()
         cv2.waitKey(1)
 
