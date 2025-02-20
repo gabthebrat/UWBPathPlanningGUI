@@ -1,3 +1,9 @@
+"""
+WORKS WELL 20 FEB
+Run stand-alone to launch server and GUI. 
+Server stops running after GUI closes.
+"""
+
 import threading, socket, json, time
 import logging
 from typing import Dict, Set, Any, List, Literal
@@ -234,11 +240,13 @@ class MarkerServer:
 
             # Start the GUI main loop
             self.root.mainloop()
+            logging.info("GUI closed by user. Server shutting down...")
 
-            # Keep main thread alive
-            while True:
-                time.sleep(2)
-                logging.debug("GUI closed, but server is still running...")
+            # # Keep main thread alive (Disabled for Mac users)
+            # while True:
+            #     time.sleep(2)
+            #     logging.debug("GUI closed, but server is still running...")
+
         except Exception as e:
             logging.error(f"Error in server run: {e}")
 

@@ -105,7 +105,7 @@ def detect_and_land(controller:DroneController):
             display_frame = draw_pose_axes(display_frame, corners, [marker_id], rvecs, tvecs)
             logging.info(f"Obtained Marker Status from Server: {controller.marker_client.marker_status}")
             logging.debug(f"Marker detected: {marker_id}. Available: {controller.marker_client.is_marker_available(marker_id)}. Currently locked on: {controller.markernum_lockedon}")
-            # controller.marker_client.send_update("status", status_message=f"Locked on {controller.markernum_lockedon}")
+            controller.marker_client.send_update("status", status_message=f"Locked on {controller.markernum_lockedon}")
             marker_latch = True
 
             # PART 1: DETECTION AND LOCK-ON LOGIC
