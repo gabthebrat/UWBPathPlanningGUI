@@ -142,7 +142,7 @@ def draw_pose_axes(frame, corners, ids, rvecs, tvecs):
     
     x, y, z = tvecs[0]
     euclidean_distance = np.sqrt(x*x + y*y + z*z)
-    distance_text = f"3D Distance: {euclidean_distance:.1f} cm"
+    distance_text = f"3D Distance to {ids[0]}: {euclidean_distance:.1f} cm"
     cv2.putText(frame, distance_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     
     return frame
