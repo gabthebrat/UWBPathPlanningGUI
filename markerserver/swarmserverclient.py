@@ -32,17 +32,22 @@ class MarkerServer:
         self.broadcast_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.broadcast_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.broadcast_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
-        logging.info(f"Swarm server started on {self.host}:{self.port}")
+
+        logging.info(f"Swarm server with GUI started on {self.host}:{self.port}")
 
         ## 20 FEB GUI THINGS:
         # Initialize GUI
         self.root = tk.Tk()
         self.root.title("Marker and Drone Status Monitor")
-        self.root.geometry("400x500")  # Increased window size to accommodate both tables
-
+        self.root.geometry("500x600")  # WxH; Adjusted for larger text
+        
+        # **Set Font Styles**
+        self.style = ttk.Style()
+        self.style.configure("Treeview", font=("Helvetica", 11))  # Font for table rows
+        self.style.configure("Treeview.Heading", font=("Helvetica", 12, "bold"))  # Font for column headings
+        
         # Create a table to display marker statuses
-        self.marker_tree = ttk.Treeview(self.root, columns=("Marker ID", "Detected", "Landed", "Drone ID"), show="headings")
+        self.marker_tree = ttk.Treeview(self.root, columns=("Marker ID", "Detected", "Landed", "Drone ID"), show="headings", style="Treeview")
         self.marker_tree.heading("Marker ID", text="Marker ID")
         self.marker_tree.heading("Detected", text="Detected")
         self.marker_tree.heading("Landed", text="Landed")
@@ -50,15 +55,15 @@ class MarkerServer:
         self.marker_tree.pack(fill=tk.BOTH, expand=True)
 
         # Create a table to display drone statuses
-        self.drone_tree = ttk.Treeview(self.root, columns=("Drone ID", "Ready", "Waiting List", "Status"), show="headings")
+        self.drone_tree = ttk.Treeview(self.root, columns=("Drone ID", "Ready", "Group", "Status"), show="headings", style="Treeview")
         self.drone_tree.heading("Drone ID", text="Drone ID")
         self.drone_tree.heading("Ready", text="Ready")
-        self.drone_tree.heading("Waiting List", text="Waiting List")
+        self.drone_tree.heading("Group", text="Group")
         self.drone_tree.heading("Status", text="Status")
         self.drone_tree.pack(fill=tk.BOTH, expand=True)
 
         # Adjust column width dynamically
-        self.root.update_idletasks()  # Ensure layout updates before setting column widths
+        self.root.update_idletasks()
         self.adjust_column_widths()
 
         # Bind window resize event
@@ -138,7 +143,7 @@ class MarkerServer:
             waiting_list = message["waiting_list"]
             self.register_ready_drone(drone_id, waiting_list)
 
-        elif message["type"] == "status":
+        elif message["type"] == "update":
             logging.debug(f"{drone_id} status update. Message: {message}")
             self.drone_status[drone_id]["status"] = message["status"]
 
@@ -182,12 +187,13 @@ class MarkerServer:
                                 self.clients.add(addr)
                                 logging.info(f"New client connected: {addr}")
                             self.broadcast_status_to_one(addr)
-                    elif message.get("type") == 'takeoff_request' or message.get("type") == 'status':  # Drone Status Update (TODO 17 FEB for other conditions)
-                        self.update_drone_status(message)
-                    elif message.get("type") == 'marker':  # Drone Status Update (TODO 17 FEB for other conditions)
-                        self.update_marker_status(message)
+                    elif message.get("type") == 'takeoff_request' or message.get("status", False) or message.get("marker_id") > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
+                        if message.get("type") == 'takeoff_request' or message.get("status", False):    
+                            self.update_drone_status(message)
+                        if message.get("marker_id") > 0:  # Drone Status Update (TODO 17 FEB for other conditions)
+                            self.update_marker_status(message)
                     else:
-                        logging.warning("Invalid message format received. See handle_messages in swarmserverclient")
+                        logging.warning("Invalid message format received. See handle_messages in swarmserverclient.")
                         if addr not in self.clients:
                             with self.lock:
                                 self.clients.add(addr)
@@ -303,10 +309,10 @@ class MarkerServer:
         self.marker_tree.column("Drone ID", width=int(total_width * dec1))  
 
         dec2 = float(1/4)
-        self.drone_tree.column("Drone ID", width=int(total_width * dec2))     
-        self.drone_tree.column("Ready", width=int(total_width * dec2))       
-        self.drone_tree.column("Waiting List", width=int(total_width * dec2))
-        self.drone_tree.column("Status", width=int(total_width * dec2))
+        self.drone_tree.column("Drone ID", width=int(total_width * dec2 * 0.8))     
+        self.drone_tree.column("Ready", width=int(total_width * dec2 * 0.8))       
+        self.drone_tree.column("Group", width=int(total_width * dec2))
+        self.drone_tree.column("Status", width=int(total_width * dec2 * 1.6))
 
     def update_gui(self):
         """Update the GUI with the latest marker and drone statuses."""
@@ -364,8 +370,22 @@ class MarkerClient:
         self.marker_status = {}  # Keeps a local copy of marker_status
         threading.Thread(target=self.receive_updates, daemon=True).start()
 
-        self.send_update('marker', marker_id=-1)  # Send an initial message to register with the server
+        self.send_update(marker_id=-1)  # Send an initial message to register with the server
         logging.info(f"Marker client {drone_id} broadcasting on {self.broadcast_ip}:{self.server_port}")
+    
+    def _send_message(self, message: Dict) -> None:
+        """
+        :args:
+        - message: An unencoded dictionary
+
+        Sends a message 5 times for reliability.
+        Internal method.
+        """
+        message_json = json.dumps(message).encode()
+        for _ in range(5):
+            self.sock.sendto(message_json, (self.broadcast_ip, self.server_port))
+            time.sleep(0.03)  # Small delay to prevent flooding
+        logging.debug(f"Drone {self.drone_id} sent: {message}")
 
     def send_takeoff_request(self, waiting_list:list):
         """
@@ -377,45 +397,39 @@ class MarkerClient:
             "waiting_list": waiting_list,
             "ready": True
         }
-        message_json = json.dumps(message).encode()
-
-        for _ in range(5):  # Send the message 5 times for reliability
-            self.sock.sendto(message_json, (self.broadcast_ip, self.server_port))
-            time.sleep(0.03)  # Small delay to prevent flooding
-
+        self._send_message(message)
         logging.info(f"Drone {self.drone_id} is ready and waiting for {waiting_list} to takeoff together.")
-    
-    def send_update(self, update_type:Literal["status","marker"], 
-                    marker_id:int=None, detected:bool=None, landed:bool=None,
-                    status_message:str=''):
+
+    def send_update(self, status_message: str = '', marker_id: int = None, 
+                detected: bool = None, landed: bool = None):
         """
-        19 Feb - keep separate from send_takeoff_request since it has an additional waiting_list argument
+        Sends an update message to the server, supporting both status and marker updates in a single message.
 
-                message is a dictionary: 
-                {"drone_id": 1, "update_type": "marker", "marker": 2, "detected": True}
-                {"drone_id": 2, "update_type": "status", "status": "Centering"}
+        Keep separate from send_takeoff_request since it has an additional waiting_list argument
 
+            message is a open-ended dictionary: e.g. 
+                {"drone_id": 1, "marker_id": 2, "detected": True, "status": "Detected marker 2"}
+                {"drone_id": 2, "status": "Centering"}
         """
-        message:Dict = {"drone_id": self.drone_id}       # initializes the message with drone_id (client's class attribute)
+        message = {"drone_id": self.drone_id}  # Initialize message with drone_id
 
-        if update_type == "marker" and marker_id is not None:
-            message["type"] = "marker"
+        if status_message:
+            message["type"] = "update"
+            message["status"] = status_message
+
+        if marker_id is not None:
+            message["type"] = "update"
             message["marker_id"] = marker_id
             if detected is not None:
                 message["detected"] = detected
             if landed is not None:
                 message["landed"] = landed
 
-        elif update_type =="status":
-            message["type"] = "status"
-            message["status"] = status_message
+        if "type" not in message:  
+            logging.warning("No valid update provided. Message not sent.")
+            return  # Avoid sending empty messages
 
-        message_json = json.dumps(message).encode()
-        for _ in range(5):  # Send the message 5 times for reliability
-            self.sock.sendto(message_json, (self.broadcast_ip, self.server_port))
-            time.sleep(0.03)  # Small delay to prevent flooding
-
-        logging.debug(f"MarkerClient {self.drone_id} sent {message} (sent five times for reliability)")
+        self._send_message(message)
 
     def receive_updates(self):  # Background thread
         while True:

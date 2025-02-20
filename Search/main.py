@@ -42,7 +42,7 @@ def execute_waypoints_scan_land(dronecontroller:DroneController, waypoint_json_w
         for i, wp in enumerate(data['wp']):
             # Handle rotation if necessary. Scan for marker (on that side) after rotation, to see behind the drone's previous position
             dronecontroller.update_current_pos()
-            dronecontroller.marker_client.send_update("status", status_message=f"Search Path Waypoint {i}: Orienting") 
+            dronecontroller.marker_client.send_update(status_message=f"Search Path Waypoint {i+1}/{len(data['wp'])}: Orienting") 
             if wp['angle_deg'] != 0:
                 if wp['angle_deg'] < 0:
                     dronecontroller.drone.rotate_clockwise(int(abs(wp['angle_deg'])))
@@ -56,7 +56,7 @@ def execute_waypoints_scan_land(dronecontroller:DroneController, waypoint_json_w
             
             # Handle forward movements in (20cm, 150cm] increments
             distance = wp['dist_cm']
-            dronecontroller.marker_client.send_update("status", status_message=f"Search Path Waypoint {i}: Moving Forward")
+            dronecontroller.marker_client.send_update(status_message=f"Search Path Waypoint {i+1}/{len(data['wp'])}: Moving Forward")
             while distance > 200:
                 dronecontroller.drone.move_forward(150)
                 dronecontroller.update_current_pos(distance_cm=150)

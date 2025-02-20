@@ -6,8 +6,8 @@ import time
 marker_client1 = MarkerClient(drone_id=1)
 marker_client2 = MarkerClient(drone_id=2)
 
-marker_client1.send_update('status', status_message='takeoff')
-marker_client2.send_update('status', status_message='takeoff')
+marker_client1.send_update(status_message='takeoff')
+marker_client2.send_update(status_message='takeoff')
 
 try:
     while True:
@@ -21,11 +21,15 @@ try:
         time.sleep(1)
         marker_client2.send_update('marker', 2, detected=False)
         time.sleep(1)
-        marker_client1.send_update('status', status_message="Orienting")
+        marker_client1.send_update(status_message="Orienting")
         time.sleep(1)
-        marker_client1.send_update('status', status_message="Moving Forward")
+        marker_client1.send_update(status_message="Moving Forward")
         time.sleep(1)
+        marker_client2.send_update(status_message="ALL AT ONCE", marker_id=3, detected=True)
+        time.sleep(1)
+        marker_client2.send_update(status_message="ALL AT ONCE AGAIN", marker_id=3, detected=False)
+        time.sleep(2)
 
 finally:
-        marker_client1.send_update('status', status_message='landing')
-        marker_client2.send_update('status', status_message='landing')
+        marker_client1.send_update(status_message='landing')
+        marker_client2.send_update(status_message='landing')

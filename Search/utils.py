@@ -105,7 +105,6 @@ def detect_and_land(controller:DroneController):
             display_frame = draw_pose_axes(display_frame, corners, [marker_id], rvecs, tvecs)
             logging.info(f"Obtained Marker Status from Server: {controller.marker_client.marker_status}")
             logging.debug(f"Marker detected: {marker_id}. Available: {controller.marker_client.is_marker_available(marker_id)}. Currently locked on: {controller.markernum_lockedon}")
-            controller.marker_client.send_update("status", status_message=f"Locked on {controller.markernum_lockedon}")
             marker_latch = True
 
             # PART 1: DETECTION AND LOCK-ON LOGIC
@@ -116,7 +115,7 @@ def detect_and_land(controller:DroneController):
 
                 if controller.markernum_lockedon is None or marker_id == controller.markernum_lockedon: # first time detecting an available marker, or subsequent time detecting a marker locked on by it (but shown as no longer available)
                     controller.markernum_lockedon = marker_id
-                    controller.marker_client.send_update("marker", marker_id, detected=True) 
+                    controller.marker_client.send_update(marker_id=marker_id, detected=True, status_message=f"Locked on {controller.markernum_lockedon}") 
                     logging.info(f"Locked onto {controller.markernum_lockedon}! Switching to approach sequence...")
                     controller.drone.send_rc_control(0, 0, 0, 0)
                     # time.sleep(1) # for stabilisation? but also slows down video feed
@@ -132,9 +131,9 @@ def detect_and_land(controller:DroneController):
                 
                 else:   # centering incomplete, but lost detection halfway and detected something else. Switch lock-on.
                     logging.debug(f"Switching lock-on from {controller.markernum_lockedon} to {marker_id}...")
-                    controller.marker_client.send_update("marker", controller.markernum_lockedon, detected=False) 
+                    controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=False, status_message=f"Switch lock-on from {controller.markernum_lockedon} to {marker_id}") 
                     controller.markernum_lockedon = marker_id   # locking onto the new one
-                    controller.marker_client.send_update("marker", controller.markernum_lockedon, detected=True)
+                    controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=True)
                     goto_approach_sequence = False
 
             else: # marker detected is NOT available
@@ -177,6 +176,7 @@ def detect_and_land(controller:DroneController):
                     current_distance_2D = np.sqrt(current_distance_3D**2 - current_height**2)
 
                     logging.info(f"3D distance to marker: {current_distance_3D:.1f}cm | Drone height: {current_height:.1f}cm | 2D distance to marker: {current_distance_2D:.1f}cm")
+                    controller.marker_client.send_update(status_message=f"Centered! Approaching marker {controller.markernum_lockedon}")
                     cv2.putText(display_frame, "Centering Complete. Approaching...", (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 4)
 
                     if current_distance_2D >= 500:
@@ -194,7 +194,7 @@ def detect_and_land(controller:DroneController):
                         logging.info("Approach complete!")
                         controller.drone.send_rc_control(0, 0, 0, 0)
                         approach_complete = True
-                        controller.marker_client.send_update("marker", marker_id, landed=True)
+                        controller.marker_client.send_update(marker_id=marker_id, landed=True, status_message=f"Landed on {marker_id}")
                         time.sleep(1)
                         break
 
@@ -208,18 +208,20 @@ def detect_and_land(controller:DroneController):
 
         elif marker_latch and spin_count < 20:  # no marker found now, but was once detected!
             logging.info("Marker previously found, but lost. Staying put and spinning.")    # TODO TBC should return to main search path
-            controller.marker_client.send_update("marker", controller.markernum_lockedon, detected=False)
+            controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=False, status_message=f"Spinning; Finding lost marker {controller.markernum_lockedon}")
             controller.set_display_frame(display_frame)    
             controller.drone.send_rc_control(0,0,0,5)
             spin_count += 1
             continue
         
-        else:   # no marker found
-            logging.info("No marker found. Proceed with search.")
+        else:   # no marker found even after spinning 20 times
+            # TBC 20 Feb - how to proceed with search path after this? 
+            logging.info("No marker found. Lock-on reset. Proceed with search.")
+            controller.markernum_lockedon = None    # reset to None in case it got lost (probably extra but redundancy is good)
+            controller.marker_client.send_update(status_message=f"No marker found. Lock on reset. Proceed with search")
             controller.set_display_frame(display_frame)
             break
     
     if approach_complete:
-        logging.info("Landing on victim. (see utils: detect_and_land)")
-        controller.marker_client.send_update("status", status_message="Landed") 
+        logging.info("Landing on victim. (see utils: detect_and_land)") 
         controller.drone.end()

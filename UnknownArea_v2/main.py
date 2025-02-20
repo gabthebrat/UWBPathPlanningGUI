@@ -101,7 +101,7 @@ def navigation_thread(controller:DroneController):
 
                     if controller.markernum_lockedon is None or marker_id == controller.markernum_lockedon: # first time detecting an available marker, or subsequent time detecting a marker locked on by it (but shown as no longer available)
                         controller.markernum_lockedon = marker_id
-                        controller.marker_client.send_update('marker', marker_id, detected=True) 
+                        controller.marker_client.send_update(marker_id=marker_id, detected=True, status_message=f"Locked onto {controller.markernum_lockedon}") 
                         logging.info(f"Locked onto {controller.markernum_lockedon}! Switching to approach sequence...")
                         controller.drone.send_rc_control(0, 0, 0, 0)
                         goto_approach_sequence = True
@@ -117,9 +117,9 @@ def navigation_thread(controller:DroneController):
                     
                     else:   # centering incomplete, but lost detection halfway and detected something else. Switch lock-on.
                         logging.debug(f"Switching lock-on from {controller.markernum_lockedon} to {marker_id}...")
-                        controller.marker_client.send_update('marker', controller.markernum_lockedon, detected=False) 
+                        controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=False, status_message=f"Switch lock-on from {controller.markernum_lockedon} to {marker_id}") 
                         controller.markernum_lockedon = marker_id   # locking onto the new one
-                        controller.marker_client.send_update('marker', controller.markernum_lockedon, detected=True)
+                        controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=True)
                         goto_approach_sequence = False
 
                 else: # marker detected is NOT available
@@ -185,7 +185,7 @@ def navigation_thread(controller:DroneController):
                             logging.info("Approach complete!")
                             controller.drone.send_rc_control(0, 0, 0, 0)
                             approach_complete = True
-                            controller.marker_client.send_update('marker', marker_id, landed=True)
+                            controller.marker_client.send_update(marker_id=marker_id, landed=True, status_message=f'Landed on {controller.markernum_lockedon}')
                             time.sleep(1)
                             break
 
@@ -212,7 +212,7 @@ def navigation_thread(controller:DroneController):
                 
                 # Publish that its lost track of target. Then resets its locked_on number.
                 logging.debug(f"Nothing detected. Resetting markernum_lockedon from {controller.markernum_lockedon} to None")
-                controller.marker_client.send_update('marker', controller.markernum_lockedon, detected=False)
+                controller.marker_client.send_update(marker_id=controller.markernum_lockedon, detected=False, status_message='Nothing detected. Lock-on reset.')
                 controller.markernum_lockedon = None
 
                 if controller.depth_map_colors["red"]["center"] > controller.depth_map_colors["blue"]["center"]:
@@ -277,10 +277,10 @@ def main():
     try:
         if not params.NO_FLY:    
             # controller.drone.takeoff()
-            controller.marker_client.send_update('status', status_message='Waiting for takeoff')
+            controller.marker_client.send_update(status_message='Waiting for takeoff')
             controller.takeoff_simul([11,12])
             logging.info("Taking off for real...")
-            controller.marker_client.send_update('status', status_message='Flying')
+            controller.marker_client.send_update(status_message='Flying')
             # controller.drone.go_to_height_PID(100)
             controller.drone.send_rc_control(0, 0, 0, 0)
             # execute_waypoints("waypoints_samplesmall.json", controller.drone, params.NO_FLY)
@@ -298,9 +298,12 @@ def main():
 
     except Exception as e:
         logging.error(f"Error in main: {e}. Landing.")
-
+        
     finally:
-        controller.marker_client.send_update('status', status_message='Landed')
+        if e:
+            controller.marker_client.send_update(status_message=f'Landed normally')
+        else:
+            controller.marker_client.send_update(status_message=f'Landed due to error in main')
         logging.info(f"Actually landing for real. End Battery Level: {controller.drone.get_battery()}%")
         controller.drone.end()
         cv2.destroyAllWindows()
