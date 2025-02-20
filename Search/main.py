@@ -56,8 +56,8 @@ def execute_waypoints_scan_land(dronecontroller:DroneController, waypoint_json_w
             
             # Handle forward movements in (20cm, 150cm] increments
             distance = wp['dist_cm']
-            dronecontroller.marker_client.send_update(status_message=f"Search Path Waypoint {i+1}/{len(data['wp'])}: Moving Forward")
             while distance > 200:
+                dronecontroller.marker_client.send_update(status_message=f"Search Path Waypoint {i+1}/{len(data['wp'])}: Moving Forward")
                 dronecontroller.drone.move_forward(150)
                 dronecontroller.update_current_pos(distance_cm=150)
                 distance -= 150
@@ -114,7 +114,15 @@ def main():
         execute_waypoints_scan_land(controller, params.WAYPOINTS_JSON)
         
         logging.info(f"Landing. Final Battery Level: {controller.drone.get_battery()}%")
-        
+        # # # Simulate a sequence of movements
+        # controller.update_current_pos(rotation_deg=0, distance_cm=150)  # Move forward 150 cm
+        # controller.update_current_pos(rotation_deg=-90, distance_cm=0)  # Rotate 90° counterclockwise
+        # controller.update_current_pos(rotation_deg=0, distance_cm=150)  # Move forward 150 cm (now facing right)
+
+        # # Print the final position and orientation
+        # print("Final Position:", controller.my_current_pos)
+        # print("Final Orientation:", controller.my_current_orientation)
+        # print("Waypoints Executed:", controller.waypoints_executed)
     except KeyboardInterrupt:
         logging.info("Program interrupted by user")
     except Exception as e:

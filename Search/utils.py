@@ -218,7 +218,7 @@ def detect_and_land(controller:DroneController):
             # TBC 20 Feb - how to proceed with search path after this? 
             logging.info("No marker found. Lock-on reset. Proceed with search.")
             controller.markernum_lockedon = None    # reset to None in case it got lost (probably extra but redundancy is good)
-            controller.marker_client.send_update(status_message=f"No marker found. Lock on reset. Proceed with search")
+            # controller.marker_client.send_update(status_message=f"No marker found. Lock on reset. Proceed with search")
             controller.set_display_frame(display_frame)
             break
     

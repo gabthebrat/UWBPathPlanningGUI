@@ -99,11 +99,11 @@ class DroneController:
         self.forward_tof_lock = Lock()
 
         # 18 FEB NEW Searcher Navigation Parameters
-        self.waypoints_executed:List[Dict] = []
-        self.my_current_pos:tuple = (0,0)       # Dead reckoning
-        self.my_current_orientation:float = 0   # Dead reckoning
-        self.my_imu_orientation = 0             
-        self.my_start_pos:tuple = (0,0)     # CAN BE A PARAM
+        self.waypoints_executed: List[Dict] = []
+        self.my_current_pos: tuple = (0, 0)  # Dead reckoning
+        self.my_current_orientation: float = 0  # Dead reckoning
+        self.my_imu_orientation: float = 0
+        self.my_start_pos: tuple = (0, 0)  # CAN BE A PARAM
         self.status:str = None              # should be a property??
         
         self.target_yaw = None      # TESTING END-JAN - for exit marker
@@ -270,37 +270,84 @@ class DroneController:
     def get_tof_distance(self):
         with self.forward_tof_lock:
             return self.forward_tof_dist
-        
-    def update_current_pos(self, rotation_deg:float=0, distance_cm:float=0):
+
+    def update_current_pos(self, rotation_deg: float = 0, distance_cm: float = 0):
         """
-        TODO 19 FEB - doesnt work; can also take in an argument to set the actual current pos? inspo PPFLY2
-
-        :args:
-        rotation_deg: input given in as GUI json (i.e. +ve ccw) 
-
         (Dead reckoning) Update the drone's position and store it in the waypoints_executed list.
-        Also stores the distance travelled / degrees rotated in the previous command.
         Assumes drone rotates and only travels forward in straight lines.
-            Drone's rotation is +ve in the clockwise direction (i.e. turning right)
-            GUI's rotation (and by extension, waypoints.json) is +ve in the anticlockwise direction (i.e. turning left)
-        
+            - Drone's rotation is +ve in the clockwise direction (i.e. turning right).
+            - GUI's rotation (and by extension, waypoints.json) is +ve in the anticlockwise direction (i.e. turning left).
+        :args:
+            rotation_deg: Rotation in degrees (clockwise is positive).
+            distance_cm: Distance moved forward in centimeters.
+
+
+            TF THIS STILL DOESNT WORK AFTER SO LONG
         """
-        rad = math.radians(rotation_deg)
-        new_x = self.my_current_pos[0] + int(distance_cm * math.sin(rad))
-        new_y = self.my_current_pos[1] + int(distance_cm * math.cos(rad))
-
-        self.my_current_pos = (round(new_x,2), round(new_y,2))
+        # Debug: Log inputs
+        logging.debug(f"Input - rotation_deg: {rotation_deg}, distance_cm: {distance_cm}")
+        
+        # For input rotation_deg, negative means counterclockwise (left turn)
+        # But in our orientation system, we want counterclockwise to be negative
+        # So we directly subtract the input rotation (which inverts the sign correctly)
         self.my_current_orientation -= rotation_deg
-        self.my_imu_orientation = self.drone.get_yaw()
-
-        if self.my_current_orientation > 180:
+        
+        # Normalize the orientation to the range [-180, 180]
+        while self.my_current_orientation > 180:
             self.my_current_orientation -= 360
-        elif self.my_current_orientation < -180:
+        while self.my_current_orientation < -180:
             self.my_current_orientation += 360
-
-        self.waypoints_executed.append({"x_cm": self.my_current_pos[0], "y_cm": self.my_current_pos[1], 
-                                        "orientation_deg": self.my_current_orientation, "imu_orientation_deg": self.my_imu_orientation,
-                                        "distance_cm": distance_cm, "rotation_deg": rotation_deg})
+            
+        # Debug: Log orientation after update
+        logging.debug(f"Updated orientation: {self.my_current_orientation}")
+        
+        # Convert orientation to radians
+        rad = math.radians(self.my_current_orientation)
+        
+        # Calculate position update:
+        # At 0 degrees, we move north (increasing y)
+        # At 90 degrees (or -270), we move west (decreasing x)
+        # At -90 degrees (or 270), we move east (increasing x)
+        # At 180 degrees (or -180), we move south (decreasing y)
+        
+        # Use cosine for x-axis (negative because 90° = west = negative x)
+        delta_x = distance_cm * math.sin(rad)
+        # Use sine for y-axis (positive because 0° = north = positive y)
+        delta_y = distance_cm * math.cos(rad)
+        
+        # Debug: Log delta_x and delta_y
+        logging.debug(f"delta_x: {delta_x}, delta_y: {delta_y}")
+        
+        new_x = self.my_current_pos[0] + delta_x
+        new_y = self.my_current_pos[1] + delta_y
+        
+        # Debug: Log new_x and new_y before rounding
+        logging.debug(f"new_x (before rounding): {new_x}, new_y (before rounding): {new_y}")
+        
+        # Round the position to the nearest centimeter
+        self.my_current_pos = (round(new_x), round(new_y))
+        
+        # Debug: Log updated position
+        logging.debug(f"Updated position: {self.my_current_pos}")
+        
+        # Update the IMU orientation (actual yaw from the drone)
+        try:
+            self.my_imu_orientation = self.drone.get_yaw()
+        except (AttributeError, NameError):
+            # Handle case where self.drone might not be initialized
+            logging.warning("self.drone not initialized, skipping IMU update")
+        
+        # Log the updated position and orientation
+        self.waypoints_executed.append({
+            "x_cm": self.my_current_pos[0],
+            "y_cm": self.my_current_pos[1],
+            "x_cm_UWB": 0,
+            "y_cm_UWB": 0,
+            "orientation_deg": self.my_current_orientation,
+            "orientation_deg_imu": self.my_imu_orientation,
+            "distance_cm": distance_cm,
+            "rotation_deg": rotation_deg
+        })
         logging.info(f"Updated waypoints executed: {self.waypoints_executed}")
 
     def detect_markers(self, frame, display_frame, marker_size=6.0):
