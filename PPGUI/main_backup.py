@@ -3,13 +3,12 @@
 import pygame
 import json
 import math
-import os
 from constants import *
 from config import *
 from utils import *
 
 import tkinter as tk
-from tkinter import simpledialog,  ttk
+from tkinter import simpledialog
 
 from typing import List, Tuple
 import datetime
@@ -389,127 +388,6 @@ def save_json(path_wp, json_name:str):     # Computes and saves final waypoints 
     else:
         print("No waypoints saved.")
 
-
-def waypoints_dialog(path_wp, action_type='save', parent_window=None):
-    # Create a Tkinter window for the dropdown
-    dialog_window = tk.Toplevel(parent_window)
-    dialog_window.title("Waypoints Manager")
-    dialog_width = 400
-    dialog_height = 180
-    dialog_window.geometry(f"{dialog_width}x{dialog_height}")
-    
-    # Force to be on top and take focus
-    dialog_window.attributes("-topmost", True)
-    
-    # Center dialog on screen
-    dialog_window.update_idletasks()
-    screen_width = dialog_window.winfo_screenwidth()
-    screen_height = dialog_window.winfo_screenheight()
-    x = (screen_width - dialog_window.winfo_width()) // 2
-    y = (screen_height - dialog_window.winfo_height()) // 2
-    dialog_window.geometry(f"+{x}+{y}")
-    
-    # Get list of JSON files in current directory
-    json_files = [f.replace('.json', '') for f in os.listdir() if f.endswith('.json')]
-    
-    # Ensure default is in the list
-    if WAYPOINTS_JSON_DEFAULT not in json_files:
-        json_files.insert(0, WAYPOINTS_JSON_DEFAULT)
-    else:
-        # Move default to the first position
-        json_files.remove(WAYPOINTS_JSON_DEFAULT)
-        json_files.insert(0, WAYPOINTS_JSON_DEFAULT)
-    
-    # Create label based on the action type
-    action_text = "save to" if action_type == 'save' else "load from"
-    tk.Label(dialog_window, text=f"Select JSON file to {action_text}:").pack(pady=10)
-    
-    # Create combobox (dropdown)
-    filename_var = tk.StringVar(value=WAYPOINTS_JSON_DEFAULT)
-    filename_combo = ttk.Combobox(dialog_window, textvariable=filename_var, values=json_files, width=30)
-    filename_combo.pack(pady=5)
-    filename_combo.current(0)  # Select default option
-    
-    # Make combobox editable for save, read-only for load
-    if action_type == 'save':
-        filename_combo.configure(state="normal")
-    else:
-        filename_combo.configure(state="readonly")
-    
-    # Variables to store result and action
-    result = {"filename": None, "action": None}
-    
-    def on_load():
-        result["filename"] = filename_var.get()
-        result["action"] = "load"
-        dialog_window.destroy()
-    
-    def on_save():
-        result["filename"] = filename_var.get() or WAYPOINTS_JSON_DEFAULT
-        result["action"] = "save"
-        dialog_window.destroy()
-    
-    def on_cancel():
-        dialog_window.destroy()
-    
-    # Handle Enter key press based on action_type
-    def on_enter(event):
-        if action_type == 'save':
-            on_save()
-        else:
-            on_load()
-    
-    # Handle Escape key press to cancel
-    def on_escape(event):
-        on_cancel()
-    
-    # Bind Enter and Escape keys to the window
-    dialog_window.bind('<Return>', on_enter)
-    dialog_window.bind('<Escape>', on_escape)
-    
-    # Button frame
-    button_frame = tk.Frame(dialog_window)
-    button_frame.pack(pady=15)
-    
-    # Load, Save and Cancel buttons
-    load_button = tk.Button(button_frame, text="Load", command=on_load)
-    save_button = tk.Button(button_frame, text="Save", command=on_save)
-    cancel_button = tk.Button(button_frame, text="Cancel", command=on_cancel)
-    
-    # Set initial focus based on action_type
-    if action_type == 'save':
-        save_button.config(relief=tk.SUNKEN)
-    else:
-        load_button.config(relief=tk.SUNKEN)
-    
-    # Pack buttons
-    load_button.pack(side=tk.LEFT, padx=10)
-    save_button.pack(side=tk.LEFT, padx=10)
-    cancel_button.pack(side=tk.LEFT, padx=10)
-    
-    # Ensure the window takes focus
-    dialog_window.after(100, lambda: dialog_window.focus_force())
-    filename_combo.focus_set()
-    
-    # Make window modal (blocks until closed)
-    dialog_window.grab_set()
-    dialog_window.wait_window()
-    
-    # Process result
-    if result["action"] == "save":
-        save_json(path_wp, result["filename"])
-        print(f"Saved waypoints to {result['filename']}.json")
-        print_json_waypoints(result["filename"])
-        return True, "save"
-    elif result["action"] == "load":
-        loaded_waypoints = load_json_waypoints(result["filename"])
-        if loaded_waypoints:
-            return loaded_waypoints, "load"
-        else:
-            print(f"Failed to load waypoints from {result['filename']}.json")
-            return None, "load_failed"
-    return None, "cancelled"
-
 # Main program
 running = True
 processing_input = False
@@ -576,14 +454,14 @@ while running:
             elif event.key == pygame.K_4: # THIS IS TO START/END AT THE SAME POS
                 process_waypoint_input(STARTPOS_4)
 
-            # elif event.key == pygame.K_s:
-            #     running = False
-            #     user_input = simpledialog.askstring("Save Waypoints", 
-            #                                             f"Enter JSON filename to save (without .json extension) \nDefault: {WAYPOINTS_JSON_DEFAULT}")
-            #     filename = WAYPOINTS_JSON_DEFAULT if user_input == "" else f"{user_input}"
-            #     save_json(path_wp, filename)
-            #     print(f"Exited. Saved as {filename}.json.")
-            #     print_json_waypoints(filename)
+            elif event.key == pygame.K_s:
+                running = False
+                user_input = simpledialog.askstring("Save Waypoints", 
+                                                        f"Enter JSON filename to save (without .json extension) \nDefault: {WAYPOINTS_JSON_DEFAULT}")
+                filename = WAYPOINTS_JSON_DEFAULT if user_input == "" else f"{user_input}"
+                save_json(path_wp, filename)
+                print(f"Exited. Saved as {filename}.json.")
+                print_json_waypoints(filename)
 
             elif event.key == 27:   # esc key
                 running = False
@@ -619,28 +497,11 @@ while running:
                         process_waypoint_input(path_wp_temp[i])
                         # print(f"i is {i}, pathwp is{path_wp_temp}, currentpos is {path_wp_temp[i]}")
 
-            elif event.key in (pygame.K_s, pygame.K_l):
-                running = False
-                action_type = 'save' if event.key == pygame.K_s else 'load'
-                
-                # Get pygame window position to center our dialog
-                os.environ['SDL_VIDEO_WINDOW_POS'] = f"{pygame.display.get_window_size()[0]//2},{pygame.display.get_window_size()[1]//2}"
-                
-                # Force the hidden root window to update its geometry info
-                root.update_idletasks()
-                    
-                result, action = waypoints_dialog(path_wp, action_type)
-                
-                if action == "load":
-                    print(f"Loaded waypoints successfully")
-                elif action == "save":
-                    print(f"Waypoints saved successfully")
-                elif action == "load_failed":
-                    print(f"Failed to load waypoints")
-                else:
-                    print("Operation cancelled")
-                running = True  # Continue running if cancelled
-                
+            elif event.key == pygame.K_l:  # 'L' key to load JSON waypoints
+                user_input = simpledialog.askstring("Load Waypoints", 
+                                                        f"Enter JSON filename to load (without .json extension) \nDefault: {WAYPOINTS_JSON_DEFAULT}")
+                filename = WAYPOINTS_JSON_DEFAULT if user_input == "" else f"{user_input}"
+                load_json_waypoints(filename)
 
             elif event.key == pygame.K_m:  # 'M' key to load markers    # NEEDS WORK 15 FEB
                 user_input = simpledialog.askstring("Load Waypoints", 
